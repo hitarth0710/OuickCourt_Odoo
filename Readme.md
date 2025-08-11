@@ -8,7 +8,6 @@
   - Configure PostgreSQL database connection
   - Set up static files and media handling
   - Create requirements.txt with all necessary dependencies
-  - _Requirements: All requirements depend on proper project setup_
 
 
 - [-] 2. Create custom User model and authentication system
@@ -167,14 +166,12 @@
   - Build content flagging and restriction system
   - Add notification system for report outcomes
   - Write tests for moderation functionality
-  - _Requirements: 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 17.7_
 
 - [ ] 22. Create admin profile management
   - Build admin profile page with role information
   - Implement admin profile edit functionality
   - Add profile validation and update confirmation
   - Write tests for admin profile management
-  - _Requirements: 18.1, 18.2, 18.3, 18.4, 18.5_
 
 - [ ] 23. Implement role-based access control and permissions
   - Create permission decorators for views
@@ -182,7 +179,6 @@
   - Add object-level permissions for venue/court management
   - Create middleware for role-based redirects
   - Write comprehensive tests for access control
-  - _Requirements: All role-specific requirements need proper access control_
 
 - [ ] 24. Add review and rating system
   - Create Review model for venue ratings
@@ -190,7 +186,6 @@
   - Implement rating calculation and display
   - Add review moderation capabilities
   - Write tests for review system
-  - _Requirements: 4.5 (reviews section display)_
 
 - [ ] 25. Implement comprehensive error handling and validation
   - Create custom exception classes for business logic
@@ -198,7 +193,6 @@
   - Implement proper HTTP error handling (404, 403, 500)
   - Create error logging and monitoring system
   - Write tests for error scenarios
-  - _Requirements: All requirements need proper error handling_
 
 - [ ] 26. Add final integration testing and bug fixes
   - Run comprehensive end-to-end testing for all user flows
@@ -206,4 +200,4 @@
   - Verify booking workflows and payment simulation
   - Fix any integration issues and edge cases
   - Optimize database queries and performance
-  - _Requirements: All requirements need integration testing_
+
