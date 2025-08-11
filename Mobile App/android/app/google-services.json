@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "864692940038",
+    "project_id": "letitout-26c2b",
+    "storage_bucket": "letitout-26c2b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:864692940038:android:25e74b06b9a6e35efc0287",
+        "android_client_info": {
+          "package_name": "com.example.letitout"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "864692940038-28j0tqo331agt6d2i6iqd476033a0cj1.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAfUWyGzrNgqYv6_B0Nioe4TsGfF3oQBlk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "864692940038-28j0tqo331agt6d2i6iqd476033a0cj1.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
