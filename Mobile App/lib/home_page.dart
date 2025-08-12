@@ -3,6 +3,8 @@ import 'auth_service.dart';
 import 'profile_page.dart';
 import 'venues_page.dart';
 import 'booking_page.dart';
+import 'firestore_service.dart';
+import 'database_setup_script.dart';
 
 class HomePage extends StatefulWidget {
   final AuthService authService;
@@ -19,6 +21,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   late AnimationController _cardsAnimationController;
   late Animation<double> _headerSlideAnimation;
   late Animation<double> _fadeAnimation;
+  
+  List<Map<String, dynamic>> _featuredVenues = [];
+  bool _isLoading = true;
   
   @override
   void initState() {
@@ -55,6 +60,75 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     Future.delayed(const Duration(milliseconds: 300), () {
       _cardsAnimationController.forward();
     });
+    
+    _loadFeaturedVenues();
+  }
+
+  Future<void> _loadFeaturedVenues() async {
+    try {
+      final venues = await FirestoreService.getFeaturedVenues(limit: 8);
+      setState(() {
+        _featuredVenues = venues.map((venue) => {
+          'id': venue['id'],
+          'name': venue['name'] ?? 'Unknown Venue',
+          'location': venue['short_location'] ?? 'Unknown Location',
+          'price': '₹${venue['starting_price_per_hour']?.toInt() ?? 0}/hour',
+          'sport': (venue['supported_sports'] as List<dynamic>?)?.isNotEmpty == true 
+            ? venue['supported_sports'][0]
+            : 'General',
+          'rating': (venue['rating'] ?? 0.0).toDouble(),
+          'imageUrl': (venue['photos'] as List<dynamic>?)?.isNotEmpty == true 
+            ? venue['photos'][0] 
+            : 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=400&h=250&fit=crop',
+          'facilities': venue['amenities'] is List<dynamic> 
+            ? venue['amenities'] as List<dynamic>
+            : _extractFacilitiesFromMap(venue['amenities']),
+          'venue_data': venue,
+        }).toList();
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+      print('Error loading featured venues: $e');
+    }
+  }
+
+  List<String> _extractFacilitiesFromMap(dynamic amenities) {
+    if (amenities is List<dynamic>) {
+      return amenities.map((item) => item.toString()).take(3).toList();
+    }
+    
+    if (amenities is Map<String, dynamic>) {
+      List<String> facilities = [];
+      amenities.forEach((key, value) {
+        if (value == true) {
+          String facility = key.split('_').map((word) => 
+            word[0].toUpperCase() + word.substring(1)
+          ).join(' ');
+          facilities.add(facility);
+        }
+      });
+      return facilities.take(3).toList(); // Limit to 3 for home page
+    }
+    
+    return [];
+  }
+
+  void _searchVenues(String query) {
+    if (query.trim().isEmpty) return;
+    
+    // Navigate to venues page with search query
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => VenuesPage(
+          authService: widget.authService,
+          searchQuery: query.trim(),
+        ),
+      ),
+    );
   }
 
   @override
@@ -65,61 +139,33 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     super.dispose();
   }
   
-  // Sample data for courts with better sports variety
-  final List<Map<String, dynamic>> sampleCourts = [
-    {
-      'name': 'Elite Badminton Center',
-      'location': 'MG Road, Bangalore',
-      'price': '₹800/hour',
-      'sport': 'Badminton',
-      'rating': 4.8,
-      'imageUrl': 'https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?w=400&h=250&fit=crop',
-      'facilities': ['AC', 'Parking', 'Equipment'],
-    },
-    {
-      'name': 'Champions Football Turf',
-      'location': 'Koramangala, Bangalore',
-      'price': '₹1200/hour',
-      'sport': 'Football',
-      'rating': 4.6,
-      'imageUrl': 'https://images.unsplash.com/photo-1431324155629-1a6deb1dec8d?w=400&h=250&fit=crop',
-      'facilities': ['Floodlights', 'Changing Room', 'Water'],
-    },
-    {
-      'name': 'Ace Tennis Academy',
-      'location': 'Indiranagar, Bangalore',
-      'price': '₹600/hour',
-      'sport': 'Tennis',
-      'rating': 4.7,
-      'imageUrl': 'https://images.unsplash.com/photo-1554068865-24cecd4e34b8?w=400&h=250&fit=crop',
-      'facilities': ['Coach Available', 'Equipment', 'Parking'],
-    },
-    {
-      'name': 'Pro Basketball Arena',
-      'location': 'HSR Layout, Bangalore',
-      'price': '₹500/hour',
-      'sport': 'Basketball',
-      'rating': 4.5,
-      'imageUrl': 'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=400&h=250&fit=crop',
-      'facilities': ['Indoor', 'Sound System', 'Scoreboard'],
-    },
-    {
-      'name': 'Victory Cricket Ground',
-      'location': 'Electronic City, Bangalore',
-      'price': '₹2000/hour',
-      'sport': 'Cricket',
-      'rating': 4.9,
-      'imageUrl': 'https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=400&h=250&fit=crop',
-      'facilities': ['Full Ground', 'Pavilion', 'Equipment'],
-    },
-  ];
-
   @override
   Widget build(BuildContext context) {
     final user = widget.authService.currentUser;
 
     return Scaffold(
       backgroundColor: const Color(0xFF1B2432),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () async {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Setting up database...')),
+          );
+          try {
+            await DatabaseSetupScript.createBasicData();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Database setup completed! ✅')),
+            );
+            _loadFeaturedVenues(); // Reload the data
+          } catch (e) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Setup failed: $e')),
+            );
+          }
+        },
+        icon: const Icon(Icons.storage),
+        label: const Text('Setup DB'),
+        backgroundColor: const Color(0xFF15823E),
+      ),
       body: SafeArea(
         child: AnimatedBuilder(
           animation: _headerAnimationController,
@@ -233,11 +279,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     child: TextField(
                       controller: _locationController,
                       style: const TextStyle(color: Color(0xFF1B2432)),
+                      onSubmitted: _searchVenues,
                       decoration: const InputDecoration(
-                        hintText: 'Where do you want to play?',
+                        hintText: 'Search venues by name or location...',
                         hintStyle: TextStyle(color: Colors.grey),
-                        prefixIcon: Icon(Icons.location_on, color: Color(0xFF15823E)),
-                        suffixIcon: Icon(Icons.search, color: Color(0xFF15823E)),
+                        prefixIcon: Icon(Icons.search, color: Color(0xFF15823E)),
+                        suffixIcon: Icon(Icons.tune, color: Color(0xFF15823E)),
                         border: InputBorder.none,
                         contentPadding: EdgeInsets.all(16),
                       ),
@@ -347,17 +394,53 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           Expanded(
                             child: FadeTransition(
                               opacity: _fadeAnimation,
-                              child: ListView.builder(
-                                padding: const EdgeInsets.symmetric(horizontal: 20),
-                                itemCount: sampleCourts.length,
-                                itemBuilder: (context, index) {
-                                  return AnimatedContainer(
-                                    duration: Duration(milliseconds: 300 + (index * 100)),
-                                    curve: Curves.easeOutBack,
-                                    child: _buildCourtCard(sampleCourts[index], index),
-                                  );
-                                },
-                              ),
+                              child: _isLoading
+                                  ? const Center(
+                                      child: CircularProgressIndicator(
+                                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF15823E)),
+                                      ),
+                                    )
+                                  : _featuredVenues.isEmpty
+                                      ? Center(
+                                          child: Column(
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              Icon(
+                                                Icons.sports_tennis,
+                                                size: 64,
+                                                color: Colors.grey[400],
+                                              ),
+                                              const SizedBox(height: 16),
+                                              Text(
+                                                'No venues available',
+                                                style: TextStyle(
+                                                  fontSize: 18,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: Colors.grey[600],
+                                                ),
+                                              ),
+                                              const SizedBox(height: 8),
+                                              Text(
+                                                'Please check your internet connection',
+                                                style: TextStyle(
+                                                  fontSize: 14,
+                                                  color: Colors.grey[500],
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        )
+                                      : ListView.builder(
+                                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                                          itemCount: _featuredVenues.length,
+                                          itemBuilder: (context, index) {
+                                            return AnimatedContainer(
+                                              duration: Duration(milliseconds: 300 + (index * 100)),
+                                              curve: Curves.easeOutBack,
+                                              child: _buildCourtCard(_featuredVenues[index], index),
+                                            );
+                                          },
+                                        ),
                             ),
                           ),
                         ],

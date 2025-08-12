@@ -2,15 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'auth_service.dart';
 import 'booking_page.dart';
+import 'firestore_service.dart';
 
 class VenuesPage extends StatefulWidget {
   final AuthService authService;
   final String cityName;
+  final String? searchQuery;
 
   const VenuesPage({
     super.key, 
     required this.authService,
     this.cityName = 'Bangalore',
+    this.searchQuery,
   });
 
   @override
@@ -30,6 +33,8 @@ class _VenuesPageState extends State<VenuesPage> with TickerProviderStateMixin {
   double _minRating = 0;
   List<Map<String, dynamic>> _filteredVenues = [];
   List<Map<String, dynamic>> _allVenues = [];
+  bool _isLoading = true;
+  String _errorMessage = '';
 
   @override
   void initState() {
@@ -47,8 +52,80 @@ class _VenuesPageState extends State<VenuesPage> with TickerProviderStateMixin {
       curve: Curves.easeOut,
     ));
     
-    _initializeVenues();
+    _loadVenuesFromFirestore();
     _fadeController.forward();
+    
+    // Set initial search query if provided
+    if (widget.searchQuery != null) {
+      _searchController.text = widget.searchQuery!;
+    }
+  }
+
+  Future<void> _loadVenuesFromFirestore() async {
+    try {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = '';
+      });
+
+      final venues = await FirestoreService.getAllVenues();
+      
+      setState(() {
+        _allVenues = venues.map((venue) => {
+          'id': venue['id'],
+          'name': venue['name'] ?? 'Unknown Venue',
+          'location': venue['short_location'] ?? 'Unknown Location',
+          'price': '₹${venue['starting_price_per_hour']?.toInt() ?? 0}/hour',
+          'sport': (venue['supported_sports'] as List<dynamic>?)?.isNotEmpty == true 
+            ? venue['supported_sports'][0]
+            : 'General',
+          'rating': (venue['rating'] ?? 0.0).toDouble(),
+          'imageUrl': (venue['photos'] as List<dynamic>?)?.isNotEmpty == true 
+            ? venue['photos'][0] 
+            : 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=400&h=250&fit=crop',
+          'facilities': venue['amenities'] is List<dynamic> 
+            ? venue['amenities'] as List<dynamic>
+            : _extractFacilitiesFromMap(venue['amenities']),
+          'description': venue['description'] ?? 'Sports facility',
+          'contact_phone': venue['contact_phone'] ?? '',
+          'operating_hours': venue['operating_hours'] ?? '',
+          'all_sports': venue['supported_sports'] ?? [],
+          'all_photos': venue['photos'] ?? [],
+          'venue_data': venue, // Store original venue data
+        }).toList();
+        
+        _filterVenues();
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Failed to load venues: $e';
+      });
+      print('Error loading venues: $e');
+    }
+  }
+
+  List<String> _extractFacilitiesFromMap(dynamic amenities) {
+    if (amenities is List<dynamic>) {
+      return amenities.map((item) => item.toString()).toList();
+    }
+    
+    if (amenities is Map<String, dynamic>) {
+      List<String> facilities = [];
+      amenities.forEach((key, value) {
+        if (value == true) {
+          // Convert snake_case to Title Case
+          String facility = key.split('_').map((word) => 
+            word[0].toUpperCase() + word.substring(1)
+          ).join(' ');
+          facilities.add(facility);
+        }
+      });
+      return facilities;
+    }
+    
+    return [];
   }
 
   @override
@@ -58,136 +135,30 @@ class _VenuesPageState extends State<VenuesPage> with TickerProviderStateMixin {
     super.dispose();
   }
 
-  void _initializeVenues() {
-    // Extended sample data for venues
-    _allVenues = [
-      {
-        'name': 'Elite Badminton Center',
-        'location': 'MG Road, ${widget.cityName}',
-        'price': '₹800/hour',
-        'sport': 'Badminton',
-        'rating': 4.8,
-        'imageUrl': 'https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?w=400&h=250&fit=crop',
-        'facilities': ['AC', 'Parking', 'Equipment', 'Changing Room'],
-        'description': 'Premium badminton facility with 6 courts and professional coaching available.',
-      },
-      {
-        'name': 'Champions Football Turf',
-        'location': 'Koramangala, ${widget.cityName}',
-        'price': '₹1200/hour',
-        'sport': 'Football',
-        'rating': 4.6,
-        'imageUrl': 'https://images.unsplash.com/photo-1431324155629-1a6deb1dec8d?w=400&h=250&fit=crop',
-        'facilities': ['Floodlights', 'Changing Room', 'Water', 'First Aid'],
-        'description': 'Full-size football turf with artificial grass and professional lighting.',
-      },
-      {
-        'name': 'Ace Tennis Academy',
-        'location': 'Indiranagar, ${widget.cityName}',
-        'price': '₹600/hour',
-        'sport': 'Tennis',
-        'rating': 4.7,
-        'imageUrl': 'https://images.unsplash.com/photo-1554068865-24cecd4e34b8?w=400&h=250&fit=crop',
-        'facilities': ['Coach Available', 'Equipment', 'Parking', 'Cafeteria'],
-        'description': 'Professional tennis courts with experienced coaches and equipment rental.',
-      },
-      {
-        'name': 'Pro Basketball Arena',
-        'location': 'HSR Layout, ${widget.cityName}',
-        'price': '₹500/hour',
-        'sport': 'Basketball',
-        'rating': 4.5,
-        'imageUrl': 'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=400&h=250&fit=crop',
-        'facilities': ['Indoor', 'Sound System', 'Scoreboard', 'Locker Room'],
-        'description': 'Indoor basketball court with professional scoreboard and sound system.',
-      },
-      {
-        'name': 'Victory Cricket Ground',
-        'location': 'Electronic City, ${widget.cityName}',
-        'price': '₹2000/hour',
-        'sport': 'Cricket',
-        'rating': 4.9,
-        'imageUrl': 'https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=400&h=250&fit=crop',
-        'facilities': ['Full Ground', 'Pavilion', 'Equipment', 'Parking'],
-        'description': 'Full cricket ground with pavilion and all necessary equipment.',
-      },
-      {
-        'name': 'Premier Badminton Club',
-        'location': 'Whitefield, ${widget.cityName}',
-        'price': '₹750/hour',
-        'sport': 'Badminton',
-        'rating': 4.4,
-        'imageUrl': 'https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?w=400&h=250&fit=crop',
-        'facilities': ['AC', 'Equipment', 'Coaching', 'Cafeteria'],
-        'description': 'Modern badminton club with 8 courts and professional coaching.',
-      },
-      {
-        'name': 'City Football Complex',
-        'location': 'Marathahalli, ${widget.cityName}',
-        'price': '₹1000/hour',
-        'sport': 'Football',
-        'rating': 4.3,
-        'imageUrl': 'https://images.unsplash.com/photo-1431324155629-1a6deb1dec8d?w=400&h=250&fit=crop',
-        'facilities': ['Multiple Turfs', 'Floodlights', 'Parking', 'Refreshments'],
-        'description': '3 football turfs of different sizes for 5v5, 7v7, and 11v11 matches.',
-      },
-      {
-        'name': 'Grand Tennis Club',
-        'location': 'Jayanagar, ${widget.cityName}',
-        'price': '₹900/hour',
-        'sport': 'Tennis',
-        'rating': 4.8,
-        'imageUrl': 'https://images.unsplash.com/photo-1554068865-24cecd4e34b8?w=400&h=250&fit=crop',
-        'facilities': ['Clay Courts', 'Hard Courts', 'Pro Shop', 'Restaurant'],
-        'description': 'Premium tennis club with both clay and hard courts available.',
-      },
-      {
-        'name': 'Urban Basketball Court',
-        'location': 'BTM Layout, ${widget.cityName}',
-        'price': '₹400/hour',
-        'sport': 'Basketball',
-        'rating': 4.2,
-        'imageUrl': 'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=400&h=250&fit=crop',
-        'facilities': ['Outdoor', 'Floodlights', 'Parking', 'Water'],
-        'description': 'Outdoor basketball court with quality flooring and lighting.',
-      },
-      {
-        'name': 'Royal Cricket Academy',
-        'location': 'Hebbal, ${widget.cityName}',
-        'price': '₹1800/hour',
-        'sport': 'Cricket',
-        'rating': 4.6,
-        'imageUrl': 'https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=400&h=250&fit=crop',
-        'facilities': ['Nets', 'Coaching', 'Equipment', 'Video Analysis'],
-        'description': 'Cricket academy with nets, coaching, and video analysis facilities.',
-      },
-    ];
-    
-    _filteredVenues = List.from(_allVenues);
-  }
-
   void _filterVenues() {
     setState(() {
       _filteredVenues = _allVenues.where((venue) {
         // Search filter
-        bool matchesSearch = venue['name']
+        bool matchesSearch = (venue['name'] ?? '')
             .toString()
             .toLowerCase()
             .contains(_searchController.text.toLowerCase()) ||
-            venue['location']
+            (venue['short_location'] ?? '')
             .toString()
             .toLowerCase()
             .contains(_searchController.text.toLowerCase());
         
-        // Sport filter
-        bool matchesSport = _selectedSport == 'All' || venue['sport'] == _selectedSport;
+        // Sport filter  
+        bool matchesSport = _selectedSport == 'All' || 
+            (venue['supported_sports'] as List<dynamic>? ?? []).contains(_selectedSport);
         
         // Price filter
-        double venuePrice = double.tryParse(venue['price'].toString().replaceAll(RegExp(r'[₹/hour,]'), '')) ?? 0;
+        double venuePrice = (venue['starting_price_per_hour'] as num?)?.toDouble() ?? 0;
         bool matchesPrice = venuePrice >= _minPrice && venuePrice <= _maxPrice;
         
         // Rating filter
-        bool matchesRating = venue['rating'] >= _minRating;
+        double venueRating = (venue['rating'] as num?)?.toDouble() ?? 0;
+        bool matchesRating = venueRating >= _minRating;
         
         return matchesSearch && matchesSport && matchesPrice && matchesRating;
       }).toList();
@@ -252,7 +223,7 @@ class _VenuesPageState extends State<VenuesPage> with TickerProviderStateMixin {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Venues in ${widget.cityName}',
+                            'Venues',
                             style: GoogleFonts.poppins(
                               fontSize: 20,
                               fontWeight: FontWeight.bold,
@@ -372,15 +343,19 @@ class _VenuesPageState extends State<VenuesPage> with TickerProviderStateMixin {
                       topRight: Radius.circular(25),
                     ),
                   ),
-                  child: _filteredVenues.isEmpty
-                      ? _buildEmptyState()
-                      : ListView.builder(
-                          padding: const EdgeInsets.all(20),
-                          itemCount: _filteredVenues.length,
-                          itemBuilder: (context, index) {
-                            return _buildVenueCard(_filteredVenues[index], index);
-                          },
-                        ),
+                  child: _isLoading 
+                      ? _buildLoadingState()
+                      : _errorMessage.isNotEmpty
+                          ? _buildErrorState()
+                          : _filteredVenues.isEmpty
+                              ? _buildEmptyState()
+                              : ListView.builder(
+                                  padding: const EdgeInsets.all(20),
+                                  itemCount: _filteredVenues.length,
+                                  itemBuilder: (context, index) {
+                                    return _buildVenueCard(_filteredVenues[index], index);
+                                  },
+                                ),
                 ),
               ),
             ],
@@ -416,6 +391,69 @@ class _VenuesPageState extends State<VenuesPage> with TickerProviderStateMixin {
               fontSize: 14,
               color: Colors.grey[500],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLoadingState() {
+    return const Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF15823E)),
+          ),
+          SizedBox(height: 16),
+          Text(
+            'Loading venues...',
+            style: TextStyle(
+              fontSize: 16,
+              color: Colors.grey,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.error_outline,
+            size: 64,
+            color: Colors.red[400],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Something went wrong',
+            style: GoogleFonts.poppins(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+              color: Colors.grey[600],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _errorMessage,
+            style: GoogleFonts.inter(
+              fontSize: 14,
+              color: Colors.grey[500],
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _loadVenuesFromFirestore,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF15823E),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Retry'),
           ),
         ],
       ),

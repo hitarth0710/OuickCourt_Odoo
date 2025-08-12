@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'auth_service.dart';
+import 'firestore_service.dart';
 
 class ProfilePage extends StatefulWidget {
   final AuthService authService;
@@ -22,6 +23,10 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
   final TextEditingController _locationController = TextEditingController();
   
   bool _isEditing = false;
+  bool _isLoading = false;
+  Map<String, dynamic>? _userProfile;
+  List<Map<String, dynamic>> _userBookings = [];
+  bool _isLoadingBookings = false;
 
   @override
   void initState() {
@@ -41,15 +46,146 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
     ));
     
     _initializeUserData();
+    _loadUserBookings();
     _fadeController.forward();
+    
+    // Add listener for tab changes to refresh bookings when switching to bookings tab
+    _tabController.addListener(() {
+      if (_tabController.index == 1) { // Bookings tab
+        _loadUserBookings();
+      }
+    });
   }
 
-  void _initializeUserData() {
+  void _initializeUserData() async {
     final user = widget.authService.currentUser;
-    _nameController.text = user?.displayName ?? '';
-    _phoneController.text = user?.phoneNumber ?? '';
-    // Location would come from user preferences/profile data
-    _locationController.text = 'Bangalore, Karnataka';
+    if (user != null) {
+      // Load user profile from Firestore
+      try {
+        setState(() {
+          _isLoading = true;
+        });
+        
+        _userProfile = await FirestoreService.getUserProfile(user.uid);
+        
+        if (_userProfile != null) {
+          _nameController.text = _userProfile!['full_name'] ?? user.displayName ?? '';
+          _phoneController.text = _userProfile!['phone'] ?? user.phoneNumber ?? '';
+          _locationController.text = _userProfile!['location'] ?? '';
+        } else {
+          // Create profile if it doesn't exist
+          await FirestoreService.createUserProfile(
+            userId: user.uid,
+            fullName: user.displayName ?? 'User',
+            email: user.email ?? '',
+            phone: user.phoneNumber,
+            avatarUrl: user.photoURL,
+          );
+          _nameController.text = user.displayName ?? '';
+          _phoneController.text = user.phoneNumber ?? '';
+        }
+        
+        setState(() {
+          _isLoading = false;
+        });
+      } catch (e) {
+        setState(() {
+          _isLoading = false;
+        });
+        print('Error loading user profile: $e');
+        // Fallback to auth data
+        _nameController.text = user.displayName ?? '';
+        _phoneController.text = user.phoneNumber ?? '';
+      }
+    }
+  }
+
+  Future<void> _loadUserBookings() async {
+    final user = widget.authService.currentUser;
+    if (user == null) return;
+
+    try {
+      setState(() {
+        _isLoadingBookings = true;
+      });
+
+      print('🔄 Loading bookings for user: ${user.uid}');
+      final bookings = await FirestoreService.getUserBookings(user.uid);
+      
+      setState(() {
+        _userBookings = bookings;
+        _isLoadingBookings = false;
+      });
+      
+      print('✅ Loaded ${bookings.length} bookings in profile page');
+    } catch (e) {
+      setState(() {
+        _isLoadingBookings = false;
+      });
+      print('❌ Error loading user bookings in profile: $e');
+    }
+  }
+
+  // Public method to refresh bookings from external calls
+  void refreshBookings() {
+    _loadUserBookings();
+  }
+
+  Future<void> _saveProfile() async {
+    final user = widget.authService.currentUser;
+    if (user == null) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final userData = {
+        'full_name': _nameController.text.trim(),
+        'phone': _phoneController.text.trim(),
+        'location': _locationController.text.trim(),
+        'email': user.email ?? '',
+        'avatar_url': user.photoURL ?? '',
+      };
+
+      final success = await FirestoreService.updateUserProfile(user.uid, userData);
+      
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Profile updated successfully! ✅'),
+            backgroundColor: Color(0xFF15823E),
+          ),
+        );
+        setState(() {
+          _isEditing = false;
+        });
+        // Refresh bookings after profile update
+        _refreshBookings();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to update profile. Please try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+
+    setState(() {
+      _isLoading = false;
+    });
+  }
+
+  Future<void> _refreshBookings() async {
+    await _loadUserBookings();
   }
 
   @override
@@ -61,54 +197,6 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
     _locationController.dispose();
     super.dispose();
   }
-
-  // Sample booking data
-  final List<Map<String, dynamic>> sampleBookings = [
-    {
-      'id': 'BK001',
-      'courtName': 'Elite Badminton Center',
-      'sport': 'Badminton',
-      'date': '2025-08-10',
-      'time': '6:00 PM - 7:00 PM',
-      'price': '₹800',
-      'status': 'completed',
-      'location': 'MG Road, Bangalore',
-      'imageUrl': 'https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?w=400&h=250&fit=crop',
-    },
-    {
-      'id': 'BK002',
-      'courtName': 'Champions Football Turf',
-      'sport': 'Football',
-      'date': '2025-08-12',
-      'time': '7:00 PM - 8:00 PM',
-      'price': '₹1200',
-      'status': 'upcoming',
-      'location': 'Koramangala, Bangalore',
-      'imageUrl': 'https://images.unsplash.com/photo-1431324155629-1a6deb1dec8d?w=400&h=250&fit=crop',
-    },
-    {
-      'id': 'BK003',
-      'courtName': 'Ace Tennis Academy',
-      'sport': 'Tennis',
-      'date': '2025-08-08',
-      'time': '5:00 PM - 6:00 PM',
-      'price': '₹600',
-      'status': 'completed',
-      'location': 'Indiranagar, Bangalore',
-      'imageUrl': 'https://images.unsplash.com/photo-1554068865-24cecd4e34b8?w=400&h=250&fit=crop',
-    },
-    {
-      'id': 'BK004',
-      'courtName': 'Pro Basketball Arena',
-      'sport': 'Basketball',
-      'date': '2025-08-15',
-      'time': '4:00 PM - 5:00 PM',
-      'price': '₹500',
-      'status': 'upcoming',
-      'location': 'HSR Layout, Bangalore',
-      'imageUrl': 'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=400&h=250&fit=crop',
-    },
-  ];
 
   @override
   Widget build(BuildContext context) {
@@ -657,40 +745,144 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
   }
 
   Widget _buildBookingsTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Enhanced Filter Buttons
-          Container(
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8F9FA),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey[200]!),
+    return RefreshIndicator(
+      onRefresh: _loadUserBookings,
+      color: const Color(0xFF15823E),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Enhanced Filter Buttons
+            Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8F9FA),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey[200]!),
+              ),
+              child: Row(
+                children: [
+                  Expanded(child: _buildFilterChip('All', true)),
+                  Expanded(child: _buildFilterChip('Upcoming', false)),
+                  Expanded(child: _buildFilterChip('Completed', false)),
+                ],
+              ),
             ),
-            child: Row(
-              children: [
-                Expanded(child: _buildFilterChip('All', true)),
-                Expanded(child: _buildFilterChip('Upcoming', false)),
-                Expanded(child: _buildFilterChip('Completed', false)),
-              ],
-            ),
-          ),
-          
-          const SizedBox(height: 20),
-          
-          // Bookings List with enhanced design
-          ListView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: sampleBookings.length,
-            itemBuilder: (context, index) {
-              return _buildBookingCard(sampleBookings[index], index);
-            },
-          ),
-        ],
+            
+            const SizedBox(height: 20),
+            
+            // Debug/Test Section (Remove in production)
+            if (true) // Set to false in production
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.orange[50],
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.orange[200]!),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Debug/Test Section',
+                      style: GoogleFonts.poppins(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.orange[700],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: _loadUserBookings,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.orange[600],
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                            ),
+                            child: const Text('Refresh Bookings', style: TextStyle(fontSize: 12)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () {
+                              print('📊 Current bookings: ${_userBookings.length}');
+                              for (var booking in _userBookings) {
+                                print('  - ${booking['venue_name']} | ${booking['sport']} | ${booking['booking_date']}');
+                              }
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue[600],
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                            ),
+                            child: const Text('Debug Info', style: TextStyle(fontSize: 12)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            
+            // Bookings List with enhanced design
+            _isLoadingBookings
+                ? const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(32.0),
+                      child: CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF15823E)),
+                      ),
+                    ),
+                  )
+                : _userBookings.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(32.0),
+                          child: Column(
+                            children: [
+                              Icon(
+                                Icons.sports,
+                                size: 64,
+                                color: Colors.grey[400],
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                'No bookings yet',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Your booked courts will appear here\nPull down to refresh',
+                                textAlign: TextAlign.center,
+                                style: GoogleFonts.inter(
+                                  fontSize: 14,
+                                  color: Colors.grey[500],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    : ListView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: _userBookings.length,
+                        itemBuilder: (context, index) {
+                          return _buildBookingCard(_userBookings[index], index);
+                        },
+                      ),
+          ],
+        ),
       ),
     );
   }
@@ -719,7 +911,25 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
   }
 
   Widget _buildBookingCard(Map<String, dynamic> booking, int index) {
-    final isUpcoming = booking['status'] == 'upcoming';
+    final isUpcoming = booking['status'] == 'confirmed' || booking['status'] == 'upcoming';
+    
+    // Parse booking date and time for better display
+    String displayDate = '';
+    String displayTime = '';
+    
+    try {
+      if (booking['booking_date'] != null) {
+        final bookingDate = DateTime.parse(booking['booking_date']);
+        displayDate = '${bookingDate.day}/${bookingDate.month}/${bookingDate.year}';
+      }
+      
+      if (booking['start_time'] != null && booking['end_time'] != null) {
+        displayTime = '${booking['start_time']} - ${booking['end_time']}';
+      }
+    } catch (e) {
+      displayDate = booking['booking_date'] ?? '';
+      displayTime = '${booking['start_time']} - ${booking['end_time']}';
+    }
     
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -778,7 +988,7 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(16),
                           child: Image.network(
-                            booking['imageUrl'],
+                            booking['venue_image'] ?? '',
                             fit: BoxFit.cover,
                             errorBuilder: (context, error, stackTrace) {
                               return Container(
@@ -792,7 +1002,7 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
                                   borderRadius: BorderRadius.circular(16),
                                 ),
                                 child: Icon(
-                                  _getSportIcon(booking['sport']),
+                                  _getSportIcon(booking['sport'] ?? ''),
                                   color: const Color(0xFF15823E),
                                   size: 24,
                                 ),
@@ -816,7 +1026,7 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
                             children: [
                               Expanded(
                                 child: Text(
-                                  booking['courtName'],
+                                  booking['venue_name'] ?? 'Unknown Venue',
                                   style: GoogleFonts.poppins(
                                     fontSize: 16,
                                     fontWeight: FontWeight.w600,
@@ -836,7 +1046,7 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Text(
-                                  booking['status'].toString().toUpperCase(),
+                                  (booking['status'] ?? 'confirmed').toString().toUpperCase(),
                                   style: GoogleFonts.inter(
                                     fontSize: 9,
                                     fontWeight: FontWeight.w600,
@@ -861,13 +1071,13 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Icon(
-                                  _getSportIcon(booking['sport']),
+                                  _getSportIcon(booking['sport'] ?? ''),
                                   size: 12,
                                   color: const Color(0xFF15823E),
                                 ),
                                 const SizedBox(width: 3),
                                 Text(
-                                  booking['sport'],
+                                  booking['sport'] ?? 'Unknown',
                                   style: GoogleFonts.inter(
                                     fontSize: 10,
                                     fontWeight: FontWeight.w600,
@@ -913,7 +1123,7 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
-                              booking['location'],
+                              booking['venue_location'] ?? 'Unknown Location',
                               style: GoogleFonts.inter(
                                 fontSize: 12,
                                 color: Colors.grey[700],
@@ -946,11 +1156,44 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
-                              '${booking['date']} • ${booking['time']}',
+                              '$displayDate • $displayTime',
                               style: GoogleFonts.inter(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
                                 color: const Color(0xFF1B2432),
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      
+                      const SizedBox(height: 8),
+                      
+                      // Court info
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF15823E).withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Icon(
+                              Icons.sports_tennis,
+                              size: 14,
+                              color: const Color(0xFF15823E),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              booking['court_name'] ?? 'Court ${booking['court_id']}',
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                color: Colors.grey[700],
+                                fontWeight: FontWeight.w500,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -989,7 +1232,7 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
-                        booking['price'],
+                        '₹${booking['total_amount']?.toInt() ?? 0}',
                         style: GoogleFonts.poppins(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
@@ -1096,24 +1339,6 @@ class _ProfilePageState extends State<ProfilePage> with TickerProviderStateMixin
       default:
         return Icons.sports;
     }
-  }
-
-  void _saveProfile() {
-    // Here you would typically save to Firebase or your backend
-    setState(() {
-      _isEditing = false;
-    });
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('Profile updated successfully!'),
-        backgroundColor: const Color(0xFF15823E),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-      ),
-    );
   }
 
   void _showCancelBookingDialog(Map<String, dynamic> booking) {

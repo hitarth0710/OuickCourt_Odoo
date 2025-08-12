@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'firestore_service.dart';
+import 'auth_service.dart';
 
 class BookingPage extends StatefulWidget {
   final Map<String, dynamic> venue;
@@ -21,9 +23,11 @@ class _BookingPageState extends State<BookingPage> {
   String _selectedCourt = '';
   
   // Available data
-  List<String> _availableSports = [];
-  List<String> _availableCourts = [];
+  List<Map<String, dynamic>> _availableSports = [];
+  List<Map<String, dynamic>> _availableCourts = [];
   List<TimeOfDay> _availableTimeSlots = [];
+  bool _isLoading = true;
+  String _errorMessage = '';
 
   @override
   void initState() {
@@ -32,26 +36,97 @@ class _BookingPageState extends State<BookingPage> {
   }
 
   void _initializeData() {
-    // Initialize sports based on venue
-    String venueSport = widget.venue['sport'];
-    _availableSports = [venueSport];
-    
-    if (venueSport == 'Football') {
-      _availableSports.addAll(['5v5 Football', '7v7 Football', '11v11 Football']);
-    } else if (venueSport == 'Tennis') {
-      _availableSports.addAll(['Singles Tennis', 'Doubles Tennis']);
-    } else if (venueSport == 'Badminton') {
-      _availableSports.addAll(['Singles Badminton', 'Doubles Badminton']);
+    _loadVenueData();
+  }
+
+  Future<void> _loadVenueData() async {
+    try {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = '';
+      });
+
+      final venueData = widget.venue['venue_data'] ?? widget.venue;
+      
+      // Get sports available at this venue, or use default options
+      List<dynamic> supportedSports = venueData['supported_sports'] ?? [];
+      
+      // If no supported sports are defined, provide a comprehensive list
+      if (supportedSports.isEmpty) {
+        supportedSports = [
+          'Badminton',
+          'Tennis',
+          'Football',
+          'Basketball',
+          'Cricket',
+          'Table Tennis',
+          'Squash',
+          'Volleyball',
+          'Swimming',
+          'Gym/Fitness'
+        ];
+      }
+      
+      _availableSports = supportedSports.map((sport) => {
+        'name': sport.toString(),
+        'id': sport.toString(),
+      }).toList();
+      if (_availableSports.isNotEmpty) {
+        _selectedSport = _availableSports.first['name'] ?? '';
+      }
+
+      // Get courts for this venue and selected sport
+      await _loadCourtsForSport();
+      
+      // Initialize time slots
+      _availableTimeSlots = _generateTimeSlots();
+      
+      setState(() {
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Failed to load venue data: $e';
+      });
     }
-    
-    _selectedSport = _availableSports.first;
-    
-    // Initialize courts
-    _availableCourts = _generateCourts(venueSport);
-    _selectedCourt = _availableCourts.first;
-    
-    // Initialize time slots
-    _availableTimeSlots = _generateTimeSlots();
+  }
+
+  Future<void> _loadCourtsForSport() async {
+    try {
+      final venueData = widget.venue['venue_data'] ?? widget.venue;
+      final venueId = venueData['id'] ?? '';
+      
+      // Create mock courts since we simplified the database structure
+      _availableCourts = [
+        {
+          'id': 'court_1',
+          'name': 'Court 1',
+          'sport': _selectedSport,
+          'venue_id': venueId,
+          'hourly_rate': (venueData['starting_price_per_hour'] as num?)?.toDouble() ?? 500.0,
+          'is_active': true,
+        },
+        {
+          'id': 'court_2', 
+          'name': 'Court 2',
+          'sport': _selectedSport,
+          'venue_id': venueId,
+          'hourly_rate': (venueData['starting_price_per_hour'] as num?)?.toDouble() ?? 500.0,
+          'is_active': true,
+        }
+      ];
+      
+      if (_availableCourts.isNotEmpty) {
+        _selectedCourt = _availableCourts.first['id'] ?? '';
+      }
+    } catch (e) {
+      // Fallback to generated courts
+      _availableCourts = _generateCourtsAsMaps(_selectedSport);
+      if (_availableCourts.isNotEmpty) {
+        _selectedCourt = _availableCourts.first['id'] ?? '';
+      }
+    }
   }
 
   List<String> _generateCourts(String sport) {
@@ -66,9 +141,37 @@ class _BookingPageState extends State<BookingPage> {
         return ['Court A', 'Court B'];
       case 'cricket':
         return ['Main Ground', 'Practice Net 1', 'Practice Net 2', 'Practice Net 3'];
+      case 'table tennis':
+        return ['Table 1', 'Table 2', 'Table 3', 'Table 4', 'Table 5'];
+      case 'squash':
+        return ['Court 1', 'Court 2', 'Court 3'];
+      case 'volleyball':
+        return ['Court A', 'Court B', 'Beach Court'];
+      case 'swimming':
+        return ['Lane 1-2', 'Lane 3-4', 'Lane 5-6', 'Full Pool'];
+      case 'gym/fitness':
+      case 'gym':
+      case 'fitness':
+        return ['Zone A', 'Zone B', 'Zone C', 'Cardio Area', 'Weights Area'];
       default:
         return ['Court 1', 'Court 2', 'Court 3'];
     }
+  }
+
+  List<Map<String, dynamic>> _generateCourtsAsMaps(String sport) {
+    List<String> courtNames = _generateCourts(sport);
+    return courtNames.asMap().entries.map((entry) => {
+      'id': 'court_${entry.key + 1}',
+      'name': entry.value,
+      'price_per_hour': _getBasePriceForSport(sport),
+    }).toList();
+  }
+
+  double _getBasePriceForSport(String sport) {
+    // Extract base price from venue data
+    final venueData = widget.venue['venue_data'] ?? widget.venue;
+    return venueData['starting_price_per_hour']?.toDouble() ?? 
+           double.tryParse(widget.venue['price'].toString().replaceAll(RegExp(r'[₹/hour,]'), '')) ?? 500.0;
   }
 
   List<TimeOfDay> _generateTimeSlots() {
@@ -83,10 +186,34 @@ class _BookingPageState extends State<BookingPage> {
   }
 
   double _calculateTotalPrice() {
-    double basePrice = double.tryParse(
-      widget.venue['price'].toString().replaceAll(RegExp(r'[₹/hour,]'), '')
-    ) ?? 0;
-    return basePrice * _duration;
+    // Try to get price from selected court first
+    final selectedCourt = _availableCourts.firstWhere(
+      (court) => court['id'] == _selectedCourt,
+      orElse: () => {},
+    );
+    
+    double pricePerHour = 0;
+    
+    if (selectedCourt.isNotEmpty) {
+      pricePerHour = (selectedCourt['hourly_rate'] ?? selectedCourt['price_per_hour'] ?? 0).toDouble();
+    }
+    
+    // Fallback to venue price
+    if (pricePerHour == 0) {
+      final venueData = widget.venue['venue_data'] ?? widget.venue;
+      pricePerHour = (venueData['starting_price_per_hour'] as num?)?.toDouble() ?? 
+                     double.tryParse(widget.venue['price'].toString().replaceAll(RegExp(r'[₹/hour,]'), '')) ?? 500.0;
+    }
+    
+    return pricePerHour * _duration;
+  }
+
+  String _getSelectedCourtName() {
+    final selectedCourt = _availableCourts.firstWhere(
+      (court) => court['id'] == _selectedCourt,
+      orElse: () => {'name': _selectedCourt},
+    );
+    return selectedCourt['name'] ?? _selectedCourt;
   }
 
   @override
@@ -180,7 +307,7 @@ class _BookingPageState extends State<BookingPage> {
                 Expanded(
                   flex: _currentStep == 0 ? 1 : 2,
                   child: ElevatedButton(
-                    onPressed: _currentStep < 5 ? _nextStep : _completeBooking,
+                    onPressed: (_currentStep < 5 && !_isLoading) ? _nextStep : (_isLoading ? null : _completeBooking),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF15823E),
                       foregroundColor: Colors.white,
@@ -189,17 +316,33 @@ class _BookingPageState extends State<BookingPage> {
                       ),
                       padding: const EdgeInsets.symmetric(vertical: 16),
                     ),
-                    child: Text(
-                      _currentStep < 4 
-                          ? 'Continue' 
-                          : _currentStep == 4 
-                              ? 'Proceed to Payment' 
-                              : 'Back to Home',
-                      style: GoogleFonts.inter(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 16,
+                    child: _isLoading ? 
+                      const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          SizedBox(
+                            height: 16,
+                            width: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          ),
+                          SizedBox(width: 8),
+                          Text('Processing...'),
+                        ],
+                      ) :
+                      Text(
+                        _currentStep < 4 
+                            ? 'Continue' 
+                            : _currentStep == 4 
+                                ? 'Proceed to Payment' 
+                                : 'Back to Home',
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                        ),
                       ),
-                    ),
                   ),
                 ),
               ],
@@ -256,8 +399,9 @@ class _BookingPageState extends State<BookingPage> {
             child: ListView.builder(
               itemCount: _availableSports.length,
               itemBuilder: (context, index) {
-                String sport = _availableSports[index];
-                bool isSelected = sport == _selectedSport;
+                Map<String, dynamic> sport = _availableSports[index];
+                String sportName = sport['name'] ?? '';
+                bool isSelected = sportName == _selectedSport;
                 
                 return Container(
                   margin: const EdgeInsets.only(bottom: 12),
@@ -278,13 +422,13 @@ class _BookingPageState extends State<BookingPage> {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Icon(
-                        _getSportIcon(sport),
+                        _getSportIcon(sportName),
                         color: isSelected ? Colors.white : Colors.grey[600],
                         size: 24,
                       ),
                     ),
                     title: Text(
-                      sport,
+                      sportName,
                       style: GoogleFonts.poppins(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
@@ -292,7 +436,7 @@ class _BookingPageState extends State<BookingPage> {
                       ),
                     ),
                     subtitle: Text(
-                      _getSportDescription(sport),
+                      _getSportDescription(sportName),
                       style: GoogleFonts.inter(
                         fontSize: 12,
                         color: Colors.grey[600],
@@ -304,7 +448,8 @@ class _BookingPageState extends State<BookingPage> {
                     ),
                     onTap: () {
                       setState(() {
-                        _selectedSport = sport;
+                        _selectedSport = sportName;
+                        _loadCourtsForSport(); // Reload courts when sport changes
                       });
                     },
                   ),
@@ -583,9 +728,11 @@ class _BookingPageState extends State<BookingPage> {
             child: ListView.builder(
               itemCount: _availableCourts.length,
               itemBuilder: (context, index) {
-                String court = _availableCourts[index];
-                bool isSelected = court == _selectedCourt;
-                bool isAvailable = _isCourtAvailable(court);
+                Map<String, dynamic> court = _availableCourts[index];
+                String courtId = court['id'] ?? '';
+                String courtName = court['name'] ?? '';
+                bool isSelected = courtId == _selectedCourt;
+                bool isAvailable = _isCourtAvailable(courtId);
                 
                 return Container(
                   margin: const EdgeInsets.only(bottom: 12),
@@ -628,7 +775,7 @@ class _BookingPageState extends State<BookingPage> {
                       ),
                     ),
                     title: Text(
-                      court,
+                      courtName,
                       style: GoogleFonts.poppins(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
@@ -640,7 +787,7 @@ class _BookingPageState extends State<BookingPage> {
                       ),
                     ),
                     subtitle: Text(
-                      isAvailable ? 'Available' : 'Booked',
+                      isAvailable ? 'Available - ₹${court['price_per_hour']?.toInt() ?? 0}/hour' : 'Booked',
                       style: GoogleFonts.inter(
                         fontSize: 12,
                         color: isAvailable ? Colors.green[600] : Colors.red[600],
@@ -661,7 +808,7 @@ class _BookingPageState extends State<BookingPage> {
                     ),
                     onTap: isAvailable ? () {
                       setState(() {
-                        _selectedCourt = court;
+                        _selectedCourt = courtId;
                       });
                     } : null,
                   ),
@@ -779,7 +926,7 @@ class _BookingPageState extends State<BookingPage> {
                         _buildSummaryRow('Date', _formatDate(_selectedDate)),
                         _buildSummaryRow('Time', '${_formatTimeOfDay(_startTime)} - ${_formatTimeOfDay(_getEndTime())}'),
                         _buildSummaryRow('Duration', '$_duration ${_duration == 1 ? 'Hour' : 'Hours'}'),
-                        _buildSummaryRow('Court', _selectedCourt),
+                        _buildSummaryRow('Court', _getSelectedCourtName()),
                         const Divider(),
                         _buildSummaryRow('Total Amount', '₹${totalPrice.toStringAsFixed(0)}', isTotal: true),
                       ],
@@ -900,7 +1047,7 @@ class _BookingPageState extends State<BookingPage> {
                     _buildSummaryRow('Venue', widget.venue['name']),
                     _buildSummaryRow('Sport', _selectedSport),
                     _buildSummaryRow('Date & Time', '${_formatDate(_selectedDate)} \n  at  ${_formatTimeOfDay(_startTime)}'),
-                    _buildSummaryRow('Court', _selectedCourt),
+                    _buildSummaryRow('Court', _getSelectedCourtName()),
                     _buildSummaryRow('Amount Paid', '₹${_calculateTotalPrice().toStringAsFixed(0)}'),
                   ],
                 ),
@@ -947,14 +1094,137 @@ class _BookingPageState extends State<BookingPage> {
     }
   }
 
-  void _completeBooking() {
+  void _completeBooking() async {
     if (_currentStep == 4) {
-      // Simulate payment and booking completion
-      setState(() {
-        _currentStep = 5;
-      });
+      // Save booking to Firestore before confirming
+      try {
+        setState(() {
+          _isLoading = true;
+        });
+
+        // Get current user
+        final user = AuthService().currentUser;
+        if (user == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Please log in to complete booking'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          setState(() {
+            _isLoading = false;
+          });
+          return;
+        }
+
+        print('🔄 Creating booking for user: ${user.uid}');
+        print('📍 Venue: ${widget.venue['name']}');
+        print('⚽ Sport: $_selectedSport');
+        print('🏟️ Court: $_selectedCourt (${_getSelectedCourtName()})');
+        print('📅 Date: ${_formatDate(_selectedDate)}');
+        print('⏰ Time: ${_formatTimeOfDay(_startTime)} - ${_formatTimeOfDay(_getEndTime())}');
+        print('💰 Total: ₹${_calculateTotalPrice()}');
+
+        // Prepare booking data
+        final venueData = widget.venue['venue_data'] ?? widget.venue;
+        final selectedCourt = _availableCourts.firstWhere(
+          (court) => court['id'] == _selectedCourt,
+          orElse: () => {'name': _selectedCourt, 'price_per_hour': 500.0, 'hourly_rate': 500.0},
+        );
+
+        // Get actual court name from the selected court
+        final courtName = selectedCourt['name'] ?? _selectedCourt;
+        final pricePerHour = selectedCourt['hourly_rate'] ?? selectedCourt['price_per_hour'] ?? 500.0;
+
+        final bookingData = {
+          'user_id': user.uid,
+          'venue_id': venueData['id'] ?? widget.venue['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
+          'venue_name': widget.venue['name'] ?? 'Unknown Venue',
+          'venue_location': widget.venue['location'] ?? 'Unknown Location',
+          'venue_image': widget.venue['imageUrl'] ?? '',
+          'sport': _selectedSport,
+          'court_id': _selectedCourt,
+          'court_name': courtName,
+          'booking_date': _selectedDate.toIso8601String(),
+          'start_time': '${_startTime.hour.toString().padLeft(2, '0')}:${_startTime.minute.toString().padLeft(2, '0')}',
+          'end_time': '${_getEndTime().hour.toString().padLeft(2, '0')}:${_getEndTime().minute.toString().padLeft(2, '0')}',
+          'duration_hours': _duration,
+          'price_per_hour': pricePerHour,
+          'total_amount': _calculateTotalPrice(),
+          'status': 'confirmed',
+          'payment_status': 'paid',
+          'booking_id': 'QB${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}',
+          'user_name': user.displayName ?? user.email?.split('@')[0] ?? 'User',
+          'user_email': user.email ?? '',
+          'user_phone': user.phoneNumber ?? '',
+          'notes': '',
+        };
+
+        final bookingId = await FirestoreService.createBooking(bookingData);
+        
+        setState(() {
+          _isLoading = false;
+        });
+
+        if (bookingId != null) {
+          // Booking successful, proceed to confirmation
+          setState(() {
+            _currentStep = 5;
+          });
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.check_circle, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Booking confirmed successfully! 🎉\nBooking ID: QB${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}',
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+              backgroundColor: const Color(0xFF15823E),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to save booking. Please try again.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } catch (e) {
+        setState(() {
+          _isLoading = false;
+        });
+        
+        print('❌ Booking error details: $e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Booking failed:', style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                Text(e.toString(), style: const TextStyle(fontSize: 12)),
+                const SizedBox(height: 8),
+                const Text('Please check your internet connection and try again.', 
+                     style: TextStyle(fontSize: 11, fontStyle: FontStyle.italic)),
+              ],
+            ),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 6),
+          ),
+        );
+      }
     } else if (_currentStep == 5) {
-      // Navigate back to home from confirmation page
+      // Navigate back to home from confirmation page and refresh profile
       Navigator.popUntil(context, (route) => route.isFirst);
     }
   }
@@ -1019,6 +1289,18 @@ class _BookingPageState extends State<BookingPage> {
         return Icons.sports_basketball;
       case 'cricket':
         return Icons.sports_cricket;
+      case 'table tennis':
+        return Icons.table_restaurant;
+      case 'squash':
+        return Icons.sports_tennis;
+      case 'volleyball':
+        return Icons.sports_volleyball;
+      case 'swimming':
+        return Icons.pool;
+      case 'gym/fitness':
+      case 'gym':
+      case 'fitness':
+        return Icons.fitness_center;
       default:
         return Icons.sports;
     }
@@ -1050,6 +1332,18 @@ class _BookingPageState extends State<BookingPage> {
         return 'Full court basketball';
       case 'cricket':
         return 'Cricket ground booking';
+      case 'table tennis':
+        return 'Indoor table tennis';
+      case 'squash':
+        return 'Indoor squash court';
+      case 'volleyball':
+        return 'Volleyball court booking';
+      case 'swimming':
+        return 'Swimming pool access';
+      case 'gym/fitness':
+      case 'gym':
+      case 'fitness':
+        return 'Gym equipment access';
       default:
         return 'Sport facility booking';
     }
