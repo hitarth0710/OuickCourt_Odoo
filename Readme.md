@@ -21,7 +21,7 @@
 
 ### 🎬 Watch QuickCourt in Action!
 
-https://github.com/hitarth0710/QuickCourt_Odoo
+[Video Link](https://youtu.be/L6NslZV-MQQ)
 *Click above to see QuickCourt's features in action - from venue discovery to seamless booking!*
 
 </div>
@@ -1759,5 +1759,6 @@ SOFTWARE.
 *Built with ❤️ by the QuickCourt team for the global sports community*
 
 </div>
+
 
 
