@@ -21,7 +21,7 @@
 
 ### 🎬 Watch QuickCourt in Action!
 
-[![Demo Video](https://img.shields.io/badge/🎥_Watch_Demo-FF0000?style=for-the-badge&logo=youtube&logoColor=white)]([https://your-video-link-here.com](https://drive.google.com/drive/folders/1df9MDdwpOFDXHoRvtL08wpHbFmEck28C?usp=drive_link))
+[![Demo Video](https://img.shields.io/badge/🎥_Watch_Demo-FF0000?style=for-the-badge&logo=youtube&logoColor=white)]([[https://your-video-link-here.com](https://github.com/hitarth0710/QuickCourt_Odoo)](https://drive.google.com/drive/folders/1df9MDdwpOFDXHoRvtL08wpHbFmEck28C?usp=drive_link))
 
 *Click above to see QuickCourt's features in action - from venue discovery to seamless booking!*
 
@@ -1760,3 +1760,4 @@ SOFTWARE.
 *Built with ❤️ by the QuickCourt team for the global sports community*
 
 </div>
+
